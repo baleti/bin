@@ -1,0 +1,1 @@
+/mnt/c/Windows/system32/WindowsPowerShell/v1.0/powershell.exe -Command 'Add-Type -AssemblyName System.Windows.Forms; while ($true) { Start-Sleep -Seconds 5; [System.Windows.Forms.SendKeys]::SendWait("^s"); Start-Sleep -Seconds 10; [System.Windows.Forms.SendKeys]::SendWait("^{TAB}") }'
