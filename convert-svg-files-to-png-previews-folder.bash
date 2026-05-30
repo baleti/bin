@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
 
-# Dependencies: fdfind, inkscape
-# Usage: run manually or via cron/systemd timer
+# Usage: ./convert-pdf-files-to-png-previews-folder.bash "/path/to/folder 1/with/svg files" /path/to/folder 2/with/svg files"
+
 # Converts SVG files to PNG.
-# Traverses project directories from $SVG_DIRS, copies their folder structure in a new $HOME/previews folder and creates PNG image of SVG files with the same name and .svg.png suffix.
+# Traverses project directories passed on command line, mirrors their folder structure in a new $HOME/previews folder and creates PNG image of SVG files with the same name and .svg.png suffix.
 # Skips files whose preview is already up to date (matched by mtime).
 
 # Previews serve indexing tools like voidtools everything to navigate large folder structures.
+# Dependencies: fdfind, inkscape
 
-SVG_DIRS=(
-    "/path/to/folder 1/with/svg files"
-    "/path/to/folder 2/with/svg files"
-)
-
-for dir in "${SVG_DIRS[@]}"; do
+for dir in "$@"; do
     /usr/bin/fdfind . -e svg "$dir" -x sh -c ' \
         [ -e "$HOME/previews/{.}.svg.png" ] && \
         [ $(stat -c %Y "{}") -eq $(stat -c %Y "$HOME/previews/{.}.svg.png") ] || \
