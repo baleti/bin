@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""One-shot SSH agent, single-threaded: serves agent connections one at a
+time and exits as soon as every loaded key has signed at least once, or at
+the deadline (SSH_OSA_TIMEOUT seconds, default 60). Ed25519 keys only.
+Usage: eval "$(~/bin/ssh-agent)"; ssh-add <(pass <key>); ssh user@<ip address>
+"""
+
+import os, sys, socket, struct, tempfile, time, signal, ctypes, resource
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+SSH_AGENT_FAILURE=5; SSH_AGENT_SUCCESS=6
+SSH2_AGENTC_REQUEST_IDENTITIES=11; SSH2_AGENT_IDENTITIES_ANSWER=12
+SSH2_AGENTC_SIGN_REQUEST=13;       SSH2_AGENT_SIGN_RESPONSE=14
+SSH_AGENTC_ADD_IDENTITY=17
+MAX_MSG=256*1024
+TIMEOUT=int(os.environ.get('SSH_OSA_TIMEOUT','60'))
+
+def ps(s):  # pack string
+    if isinstance(s,str): s=s.encode()
+    return struct.pack('>I',len(s))+s
+def msg(t,p=b''): body=bytes([t])+p; return struct.pack('>I',len(body))+body
+def rs(buf,off): n=struct.unpack_from('>I',buf,off)[0]; off+=4; return bytes(buf[off:off+n]),off+n
+def recv(conn,n):
+    buf=b''
+    while len(buf)<n:
+        c=conn.recv(n-len(buf))
+        if not c: return None
+        buf+=c
+    return buf
+
+ids=[]; signed=set()   # single thread: no locks needed
+
+def add_key(p):
+    off=0; kt,off=rs(p,off)
+    if kt!=b'ssh-ed25519': return False
+    pub,off=rs(p,off); priv64,off=rs(p,off)
+    if len(pub)!=32 or len(priv64)!=64 or priv64[32:]!=pub: return False
+    key=Ed25519PrivateKey.from_private_bytes(priv64[:32])
+    blob=ps('ssh-ed25519')+ps(pub)
+    comment,off=rs(p,off)
+    ids.append((blob,comment,key))
+    return True
+
+def sign(p):
+    off=0; kb,off=rs(p,off); data,off=rs(p,off)
+    entry=next((e for e in ids if e[0]==kb),None)
+    if not entry: return msg(SSH_AGENT_FAILURE)
+    sb=ps('ssh-ed25519')+ps(entry[2].sign(data))
+    signed.add(kb)
+    return msg(SSH2_AGENT_SIGN_RESPONSE,ps(sb))
+
+def handle(t,p):
+    try:
+        if t==SSH2_AGENTC_REQUEST_IDENTITIES:
+            body=struct.pack('>I',len(ids))
+            for blob,comment,_ in ids: body+=ps(blob)+ps(comment)
+            return msg(SSH2_AGENT_IDENTITIES_ANSWER,body)
+        if t==SSH2_AGENTC_SIGN_REQUEST:
+            return sign(p)
+        if t==SSH_AGENTC_ADD_IDENTITY:
+            return msg(SSH_AGENT_SUCCESS if add_key(p) else SSH_AGENT_FAILURE)
+        return msg(SSH_AGENT_FAILURE)  # incl. constrained adds: ssh-add -t/-c
+    except (struct.error,IndexError,ValueError):
+        return msg(SSH_AGENT_FAILURE)
+
+def serve(conn):  # returns True once every loaded key has signed
+    creds=conn.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,struct.calcsize('3i'))
+    if struct.unpack('3i',creds)[1]!=os.getuid(): return False
+    while True:
+        h=recv(conn,4)
+        if not h: return False
+        n=struct.unpack('>I',h)[0]
+        if n<1 or n>MAX_MSG: return False
+        b=recv(conn,n)
+        if not b: return False
+        conn.sendall(handle(b[0],b[1:]))
+        if ids and signed>={blob for blob,_,_ in ids}: return True
+
+def main():
+    os.umask(0o077)
+    resource.setrlimit(resource.RLIMIT_CORE,(0,0))
+    ctypes.CDLL(None,use_errno=True).prctl(4,0,0,0,0)  # PR_SET_DUMPABLE=0
+    tmpdir=tempfile.mkdtemp(prefix='ssh-osa-')
+    sock=os.path.join(tmpdir,'s')
+    srv=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+    srv.bind(sock); srv.listen(5)
+    pid=os.fork()
+    if pid:
+        print(f'SSH_AUTH_SOCK={sock}; export SSH_AUTH_SOCK;')
+        print(f'SSH_AGENT_PID={pid}; export SSH_AGENT_PID;')
+        print(f'echo Agent pid {pid};')
+        sys.exit(0)
+    os.setsid()
+    fd=os.open(os.devnull,os.O_RDWR)
+    for i in(0,1,2): os.dup2(fd,i)
+    if fd>2: os.close(fd)
+    signal.signal(signal.SIGTERM,lambda *_: sys.exit(0))
+    deadline=time.monotonic()+TIMEOUT
+    try:
+        while (left:=deadline-time.monotonic())>0:
+            srv.settimeout(left)
+            try: conn,_=srv.accept()
+            except socket.timeout: break
+            conn.settimeout(max(deadline-time.monotonic(),0.1))
+            try:
+                if serve(conn): break
+            except socket.timeout: pass
+            finally: conn.close()
+    finally:
+        srv.close()
+        try:
+            os.unlink(sock); os.rmdir(tmpdir)
+        except OSError: pass
+
+main()
