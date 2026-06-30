@@ -89,7 +89,6 @@ def main():
     if pid:
         print(f'SSH_AUTH_SOCK={sock}; export SSH_AUTH_SOCK;')
         print(f'SSH_AGENT_PID={pid}; export SSH_AGENT_PID;')
-        print(f'echo Agent pid {pid};')
         sys.exit(0)
     os.setsid()
     fd=os.open(os.devnull,os.O_RDWR)
