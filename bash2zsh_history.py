@@ -201,6 +201,9 @@ def main():
                          " (default: %(default)s)")
     ap.add_argument("--dry-run", action="store_true",
                     help="print result instead of writing")
+    ap.add_argument("-y", "--yes", action="store_true",
+                    help="don't ask for confirmation when the zsh history"
+                         " file already exists")
     args = ap.parse_args()
 
     src = Path(args.bash_history)
@@ -221,6 +224,18 @@ def main():
         print(f"\n# {len(entries)} entries would {action} file {args.zsh_history}",
               file=sys.stderr)
         return
+
+    if dst_existed and not args.yes:
+        print(f"Detected existing {args.zsh_history}.")
+        print(f"The {len(entries)} entries from {src} will be APPENDED to it;"
+              " its current contents are kept, not replaced.")
+        try:
+            answer = input("Continue? [y/N] ")
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+            print()
+        if answer.strip().lower() not in ("y", "yes"):
+            sys.exit("Aborted, nothing written.")
 
     try:
         fd = os.open(args.zsh_history,
