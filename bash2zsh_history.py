@@ -227,8 +227,7 @@ def main():
 
     if dst_existed and not args.yes:
         print(f"Detected existing {args.zsh_history}.")
-        print(f"The {len(entries)} entries from {src} will be APPENDED to it;"
-              " its current contents are kept, not replaced.")
+        print(f"The {len(entries)} entries from {src} will be APPENDED to it.")
         try:
             answer = input("Continue? [y/N] ")
         except (EOFError, KeyboardInterrupt):
