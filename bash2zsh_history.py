@@ -192,8 +192,13 @@ def to_zsh_extended(entries, now=None):
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--bash-history", default=str(Path.home() / ".bash_history"))
-    ap.add_argument("--zsh-history", default=str(Path.home() / ".zsh_history"))
+    ap.add_argument("--bash-history", default=str(Path.home() / ".bash_history"),
+                    help="source bash history file, only ever read"
+                         " (default: %(default)s)")
+    ap.add_argument("--zsh-history", default=str(Path.home() / ".zsh_history"),
+                    help="destination zsh history file: appended to if it"
+                         " exists, created (mode 0600) if it doesn't"
+                         " (default: %(default)s)")
     ap.add_argument("--dry-run", action="store_true",
                     help="print result instead of writing")
     args = ap.parse_args()
@@ -206,11 +211,14 @@ def main():
 
     entries = parse_bash_history(data)
     payload = b"".join(line + b"\n" for line in to_zsh_extended(entries))
+    dst_existed = os.path.exists(args.zsh_history)
 
     if args.dry_run:
         sys.stdout.buffer.write(payload)
         sys.stdout.buffer.flush()
-        print(f"\n# {len(entries)} entries would be appended to {args.zsh_history}",
+        action = ("be appended to the existing" if dst_existed
+                  else "create a new")
+        print(f"\n# {len(entries)} entries would {action} file {args.zsh_history}",
               file=sys.stderr)
         return
 
@@ -239,7 +247,10 @@ def main():
     finally:
         os.close(fd)
 
-    print(f"Appended {len(entries)} entries to {args.zsh_history}")
+    if dst_existed:
+        print(f"Appended {len(entries)} entries to existing {args.zsh_history}")
+    else:
+        print(f"Created new file {args.zsh_history} with {len(entries)} entries")
     print(f"Source file {src} was not modified.")
     print("If a zsh session is currently open, run `fc -R` in it (or restart zsh)"
           " so the session picks up the imported entries instead of overwriting them.")
