@@ -251,9 +251,6 @@ def main():
         print(f"Appended {len(entries)} entries to existing {args.zsh_history}")
     else:
         print(f"Created new file {args.zsh_history} with {len(entries)} entries")
-    print(f"Source file {src} was not modified.")
-    print("If a zsh session is currently open, run `fc -R` in it (or restart zsh)"
-          " so the session picks up the imported entries instead of overwriting them.")
 
 
 if __name__ == "__main__":
